@@ -1,13 +1,32 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Form, FormField, FormLabel, FormControl, FormMessage } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  FormField,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { useFormik } from "formik";
 
 export default function CollectionsPage() {
   const [collections, setCollections] = useState([]);
@@ -18,37 +37,50 @@ export default function CollectionsPage() {
 
   const fetchCollections = async () => {
     try {
-      const response = await fetch('/api/admin/collections');
+      const response = await fetch("/api/admin/collections");
       if (!response.ok) {
-        throw new Error('Failed to fetch collections');
+        throw new Error("Failed to fetch collections");
       }
       const data = await response.json();
       setCollections(data.collections);
     } catch (error) {
-      console.error('Error fetching collections:', error);
-      toast.error('Failed to fetch collections');
+      console.error("Error fetching collections:", error);
+      toast.error("Failed to fetch collections");
     }
   };
 
-  const createCollection = async (data: { name: string; description: string }) => {
+  const createCollection = async (data: {
+    name: string;
+    description: string;
+  }) => {
     try {
-      const response = await fetch('/api/admin/collections', {
-        method: 'POST',
+      const response = await fetch("/api/admin/collections", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(data),
       });
       if (!response.ok) {
-        throw new Error('Failed to create collection');
+        throw new Error("Failed to create collection");
       }
-      toast.success('Collection created successfully');
+      toast.success("Collection created successfully");
       fetchCollections(); // Refresh the collections list
     } catch (error) {
-      console.error('Error creating collection:', error);
-      toast.error('Failed to create collection');
+      console.error("Error creating collection:", error);
+      toast.error("Failed to create collection");
     }
   };
+
+  const formik = useFormik({
+    initialValues: {
+      name: "",
+      description: "",
+    },
+    onSubmit: (values) => {
+      createCollection(values);
+    },
+  });
 
   return (
     <div className="p-6">
@@ -61,15 +93,39 @@ export default function CollectionsPage() {
           <DialogHeader>
             <DialogTitle>Create Collection</DialogTitle>
           </DialogHeader>
-          <Form onSubmit={createCollection}>
-            <FormField name="name" label="Name">
-              <Input name="name" required />
-            </FormField>
-            <FormField name="description" label="Description">
-              <Input name="description" required />
-            </FormField>
-            <Button type="submit" className="mt-4">Create</Button>
-          </Form>
+          <form onSubmit={formik.handleSubmit}>
+            <FormField
+              name="name"
+              render={() => (
+                <>
+                  <FormLabel>Name</FormLabel>
+                  <Input
+                    name="name"
+                    onChange={formik.handleChange}
+                    value={formik.values.name}
+                    required
+                  />
+                </>
+              )}
+            />
+            <FormField
+              name="description"
+              render={() => (
+                <>
+                  <FormLabel>Description</FormLabel>
+                  <Input
+                    name="description"
+                    onChange={formik.handleChange}
+                    value={formik.values.description}
+                    required
+                  />
+                </>
+              )}
+            />
+            <Button type="submit" className="mt-4">
+              Create
+            </Button>
+          </form>
         </DialogContent>
       </Dialog>
       <Card>
@@ -91,7 +147,9 @@ export default function CollectionsPage() {
                   <TableCell>{collection.name}</TableCell>
                   <TableCell>{collection.description}</TableCell>
                   <TableCell>
-                    <Button variant="outline" className="mr-2">Edit</Button>
+                    <Button variant="outline" className="mr-2">
+                      Edit
+                    </Button>
                     <Button variant="destructive">Delete</Button>
                   </TableCell>
                 </TableRow>
