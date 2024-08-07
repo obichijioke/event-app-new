@@ -23,9 +23,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <Toaster richColors position="top-center" />
         <AuthProvider>
-          <Navbar />
-          <main className="min-h-screen">{children}</main>
-          <Footer />
+          {children}
         </AuthProvider>
       </body>
     </html>

@@ -9,6 +9,7 @@ const config = {
     './src/**/*.{ts,tsx}',
 	],
   prefix: "",
+  plugins: [require("tailwindcss-animate")],
   theme: {
     container: {
       center: true,
