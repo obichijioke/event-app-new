@@ -1,4 +1,11 @@
-import { Client, Account, Databases, OAuthProvider, Avatars } from "appwrite";
+import {
+  Client,
+  Account,
+  Databases,
+  OAuthProvider,
+  Avatars,
+  Storage,
+} from "appwrite";
 
 const client = new Client();
 
@@ -9,6 +16,7 @@ client
 export const account = new Account(client);
 export const databases = new Databases(client);
 export const avatar = new Avatars(client);
+export const storage = new Storage(client);
 
 export const loginWithGoogle = () => {
   return account.createOAuth2Session(
