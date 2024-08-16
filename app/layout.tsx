@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Navbar from "../components/Navbar";
-import Footer from "../components/Footer";
 import { Toaster } from "sonner";
 import { AuthProvider } from "../context/AuthContext";
 
@@ -23,9 +21,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <Toaster richColors position="top-center" />
         <AuthProvider>
-          <Navbar />
           <main className="min-h-screen">{children}</main>
-          <Footer />
         </AuthProvider>
       </body>
     </html>

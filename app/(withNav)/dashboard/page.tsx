@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { account } from "../../appwrite";
+import { account } from "../../../appwrite";
 import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {

@@ -1,12 +1,13 @@
 "use client";
-
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { storage, databases } from "@/appwrite";
+import { useDropzone } from "react-dropzone";
 import {
   Select,
   SelectContent,
@@ -16,39 +17,80 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import useErrorHandler from "@/hooks/useErrorHandler";
+import { useAuth } from "@/context/AuthContext";
 
-const eventTypes = ["Conference", "Workshop", "Seminar", "Webinar", "Other"];
+const eventTypes = ["venue", "online"];
 
 const EventSchema = Yup.object().shape({
   title: Yup.string().required("Title is required"),
   type: Yup.string().required("Event type is required"),
   description: Yup.string().required("Description is required"),
-  location: Yup.string().required("Location is required"),
-  startTime: Yup.date().required("Start time is required"),
-  endTime: Yup.date()
+  start_time: Yup.date().required("Start time is required"),
+  end_time: Yup.date()
     .required("End time is required")
-    .min(Yup.ref("startTime"), "End time must be after start time"),
+    .min(Yup.ref("start_time"), "End time must be after start time"),
 });
 
 export default function CreateEventComponent() {
+  const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [coverImage, setCoverImage] = useState<File | null>(null);
   const handleError = useErrorHandler();
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+      setCoverImage(acceptedFiles[0]);
+      formik.setFieldValue("coverImage", acceptedFiles[0]);
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      "image/*": [".jpeg", ".png", ".jpg", ".gif"],
+    },
+    maxFiles: 1,
+  });
   const formik = useFormik({
     initialValues: {
       title: "",
       type: "",
       description: "",
-      location: "",
-      startTime: "",
-      endTime: "",
+      start_time: "",
+      end_time: "",
       coverImage: null,
     },
     validationSchema: EventSchema,
     onSubmit: async (values) => {
+      //console.log("button clicked");
       setIsSubmitting(true);
       try {
-        // TODO: Implement the API call to create the event
-        console.log("Event data:", values);
+        let coverImageId = null;
+        if (values.coverImage) {
+          const file = await storage.createFile(
+            process.env.NEXT_PUBLIC_STORAGE_ID!,
+            "unique()",
+            values.coverImage
+          );
+          coverImageId = file.$id;
+        }
+
+        const eventData = {
+          ...values,
+          coverImage: coverImageId,
+          start_time: new Date(values.start_time).toISOString(),
+          end_time: new Date(values.end_time).toISOString(),
+          user: user.$id,
+        };
+
+        const response = await databases.createDocument(
+          process.env.NEXT_PUBLIC_DATABASE_ID!,
+          process.env.NEXT_PUBLIC_API_EVENT_COLLECTION_ID!,
+          "unique()",
+          eventData
+        );
+
+        console.log("Event created:", response);
         toast.success("Event created successfully");
         formik.resetForm();
       } catch (error) {
@@ -143,66 +185,44 @@ export default function CreateEventComponent() {
 
             <div>
               <label
-                htmlFor="location"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Location
-              </label>
-              <Input
-                id="location"
-                name="location"
-                type="text"
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                value={formik.values.location}
-              />
-              {formik.touched.location && formik.errors.location && (
-                <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.location}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label
-                htmlFor="startTime"
+                htmlFor="start_time"
                 className="block text-sm font-medium text-gray-700"
               >
                 Start Time
               </label>
               <Input
-                id="startTime"
-                name="startTime"
+                id="start_time"
+                name="start_time"
                 type="datetime-local"
                 onChange={formik.handleChange}
                 onBlur={formik.handleBlur}
-                value={formik.values.startTime}
+                value={formik.values.start_time}
               />
-              {formik.touched.startTime && formik.errors.startTime && (
+              {formik.touched.start_time && formik.errors.start_time && (
                 <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.startTime}
+                  {formik.errors.start_time}
                 </div>
               )}
             </div>
 
             <div>
               <label
-                htmlFor="endTime"
+                htmlFor="end_time"
                 className="block text-sm font-medium text-gray-700"
               >
                 End Time
               </label>
               <Input
-                id="endTime"
-                name="endTime"
+                id="end_time"
+                name="end_time"
                 type="datetime-local"
                 onChange={formik.handleChange}
                 onBlur={formik.handleBlur}
-                value={formik.values.endTime}
+                value={formik.values.end_time}
               />
-              {formik.touched.endTime && formik.errors.endTime && (
+              {formik.touched.end_time && formik.errors.end_time && (
                 <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.endTime}
+                  {formik.errors.end_time}
                 </div>
               )}
             </div>
@@ -214,18 +234,40 @@ export default function CreateEventComponent() {
               >
                 Cover Image
               </label>
-              <Input
-                id="coverImage"
-                name="coverImage"
-                type="file"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file) {
-                    formik.setFieldValue("coverImage", file);
-                  }
-                }}
-                onBlur={formik.handleBlur}
-              />
+              <div
+                {...getRootProps()}
+                className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md ${
+                  isDragActive ? "bg-gray-100" : ""
+                }`}
+              >
+                <div className="space-y-1 text-center">
+                  <svg
+                    className="mx-auto h-12 w-12 text-gray-400"
+                    stroke="currentColor"
+                    fill="none"
+                    viewBox="0 0 48 48"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <div className="flex text-sm text-gray-600">
+                    <input {...getInputProps()} />
+                    <p className="pl-1">
+                      {coverImage
+                        ? coverImage.name
+                        : "Drag and drop an image, or click to select"}
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    PNG, JPG, GIF up to 10MB
+                  </p>
+                </div>
+              </div>
               {formik.touched.coverImage && formik.errors.coverImage && (
                 <div className="text-red-500 text-sm mt-1">
                   {formik.errors.coverImage}
@@ -233,7 +275,19 @@ export default function CreateEventComponent() {
               )}
             </div>
 
-            <Button type="submit" disabled={isSubmitting}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || !formik.isValid}
+              onClick={() =>
+                console.log("Form state:", {
+                  isSubmitting,
+                  isValid: formik.isValid,
+                  errors: formik.errors,
+                  touched: formik.touched,
+                  values: formik.values,
+                })
+              }
+            >
               {isSubmitting ? "Creating..." : "Create Event"}
             </Button>
           </form>
