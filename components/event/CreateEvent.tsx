@@ -18,29 +18,43 @@ import {
 import { toast } from "sonner";
 import useErrorHandler from "@/hooks/useErrorHandler";
 import { useAuth } from "@/context/AuthContext";
+import dynamic from "next/dynamic";
+import "react-quill/dist/quill.snow.css"; // Import Quill styles
+import { MapPinIcon } from "lucide-react";
+
+// Dynamically import ReactQuill to avoid SSR issues
+const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
+const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
 const eventTypes = ["venue", "online"];
+const eventCategories = ["Conference", "Workshop", "Webinar", "Meetup"];
 
 const EventSchema = Yup.object().shape({
   title: Yup.string().required("Title is required"),
-  type: Yup.string().required("Event type is required"),
+  category: Yup.string().required("Category is required"),
+  event_date: Yup.date().required("Event date is required"),
+  event_time: Yup.string().required("Event time is required"),
+  duration: Yup.string().required("Duration is required"),
   description: Yup.string().required("Description is required"),
-  start_time: Yup.date().required("Start time is required"),
-  end_time: Yup.date()
-    .required("End time is required")
-    .min(Yup.ref("start_time"), "End time must be after start time"),
+  venue: Yup.string().required("Venue is required"),
+  address1: Yup.string().required("Address line 1 is required"),
+  country: Yup.string().required("Country is required"),
+  state: Yup.string().required("State is required"),
+  city: Yup.string().required("City is required"),
+  zip: Yup.string().required("Zip code is required"),
+  bannerImage: Yup.mixed().nullable(),
 });
 
 export default function CreateEventComponent() {
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [coverImage, setCoverImage] = useState<File | null>(null);
+  const [bannerImage, setBannerImage] = useState<File | null>(null);
   const handleError = useErrorHandler();
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      setCoverImage(acceptedFiles[0]);
-      formik.setFieldValue("coverImage", acceptedFiles[0]);
+      setBannerImage(acceptedFiles[0]);
+      formik.setFieldValue("bannerImage", acceptedFiles[0]);
     }
   }, []);
 
@@ -54,32 +68,40 @@ export default function CreateEventComponent() {
   const formik = useFormik({
     initialValues: {
       title: "",
-      type: "",
+      category: "",
+      event_date: "",
+      event_time: "",
+      duration: "",
       description: "",
-      start_time: "",
-      end_time: "",
-      coverImage: null,
+      venue: "",
+      address1: "",
+      address2: "",
+      country: "",
+      state: "",
+      city: "",
+      zip: "",
+      bannerImage: null,
     },
     validationSchema: EventSchema,
     onSubmit: async (values) => {
-      //console.log("button clicked");
+      console.log("Form submitted", values);
       setIsSubmitting(true);
       try {
-        let coverImageId = null;
-        if (values.coverImage) {
+        let bannerImageId = null;
+        if (values.bannerImage) {
           const file = await storage.createFile(
             process.env.NEXT_PUBLIC_STORAGE_ID!,
             "unique()",
-            values.coverImage
+            values.bannerImage
           );
-          coverImageId = file.$id;
+          bannerImageId = file.$id;
         }
 
         const eventData = {
           ...values,
-          coverImage: coverImageId,
-          start_time: new Date(values.start_time).toISOString(),
-          end_time: new Date(values.end_time).toISOString(),
+          bannerImage: bannerImageId,
+          event_date: new Date(values.event_date).toISOString(),
+          event_time: values.event_time,
           user: user.$id,
         };
 
@@ -96,11 +118,20 @@ export default function CreateEventComponent() {
       } catch (error) {
         handleError(error);
         console.error("Error creating event:", error);
+        if (error instanceof Error) {
+          toast.error(`Failed to create event: ${error.message}`);
+        } else {
+          toast.error("An unknown error occurred");
+        }
       } finally {
         setIsSubmitting(false);
       }
     },
   });
+
+  const handleEditorChange = (content: string) => {
+    formik.setFieldValue("description", content);
+  };
 
   return (
     <div className="p-6">
@@ -110,18 +141,27 @@ export default function CreateEventComponent() {
           <CardTitle>Event Details</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={formik.handleSubmit} className="space-y-4">
+          <form onSubmit={formik.handleSubmit} className="space-y-6">
+            {/* Event Name */}
             <div>
               <label
                 htmlFor="title"
                 className="block text-sm font-medium text-gray-700"
               >
-                Title
+                Give your event a name.*
               </label>
+              <p className="text-sm text-gray-500">
+                See how your name appears on the event page and a list of all
+                places where your event name will be used.{" "}
+                <a href="#" className="text-blue-500">
+                  Learn more
+                </a>
+              </p>
               <Input
                 id="title"
                 name="title"
                 type="text"
+                placeholder="Enter event name here"
                 onChange={formik.handleChange}
                 onBlur={formik.handleBlur}
                 value={formik.values.title}
@@ -133,107 +173,115 @@ export default function CreateEventComponent() {
               )}
             </div>
 
+            {/* Event Category */}
             <div>
               <label
-                htmlFor="type"
+                htmlFor="category"
                 className="block text-sm font-medium text-gray-700"
               >
-                Event Type
+                Choose a category for your event.*
               </label>
+              <p className="text-sm text-gray-500">
+                Select a category that best describes your event. This will help
+                attendees find your event more easily.
+              </p>
               <Select
-                name="type"
-                onValueChange={(value) => formik.setFieldValue("type", value)}
+                name="category"
+                onValueChange={(value) =>
+                  formik.setFieldValue("category", value)
+                }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select event type" />
+                  <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {eventTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
+                  {eventCategories.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {formik.touched.type && formik.errors.type && (
+              {formik.touched.category && formik.errors.category && (
                 <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.type}
+                  {formik.errors.category}
                 </div>
               )}
             </div>
 
+            {/* Event Date, Time, and Duration */}
             <div>
-              <label
-                htmlFor="description"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Description
+              <label className="block text-sm font-medium text-gray-700">
+                When is your event?*
               </label>
-              <Textarea
-                id="description"
-                name="description"
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                value={formik.values.description}
-              />
-              {formik.touched.description && formik.errors.description && (
+              <p className="text-sm text-gray-500">
+                Tell your attendees when your event starts so they can get ready
+                to attend.
+              </p>
+              <div className="flex gap-4 mt-2">
+                <Input
+                  id="event_date"
+                  name="event_date"
+                  type="date"
+                  placeholder="MM/DD/YYYY"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.event_date}
+                />
+                <Input
+                  id="event_time"
+                  name="event_time"
+                  type="time"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.event_time}
+                />
+                <Select
+                  name="duration"
+                  onValueChange={(value) =>
+                    formik.setFieldValue("duration", value)
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Duration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["30m", "1h", "1h 30m", "2h", "2h 30m", "3h"].map(
+                      (duration) => (
+                        <SelectItem key={duration} value={duration}>
+                          {duration}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              {formik.touched.event_date && formik.errors.event_date && (
                 <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.description}
+                  {formik.errors.event_date}
+                </div>
+              )}
+              {formik.touched.event_time && formik.errors.event_time && (
+                <div className="text-red-500 text-sm mt-1">
+                  {formik.errors.event_time}
+                </div>
+              )}
+              {formik.touched.duration && formik.errors.duration && (
+                <div className="text-red-500 text-sm mt-1">
+                  {formik.errors.duration}
                 </div>
               )}
             </div>
 
+            {/* Banner Image Upload */}
             <div>
-              <label
-                htmlFor="start_time"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Start Time
+              <label className="block text-sm font-medium text-gray-700">
+                Add a few images to your event banner.
               </label>
-              <Input
-                id="start_time"
-                name="start_time"
-                type="datetime-local"
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                value={formik.values.start_time}
-              />
-              {formik.touched.start_time && formik.errors.start_time && (
-                <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.start_time}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label
-                htmlFor="end_time"
-                className="block text-sm font-medium text-gray-700"
-              >
-                End Time
-              </label>
-              <Input
-                id="end_time"
-                name="end_time"
-                type="datetime-local"
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                value={formik.values.end_time}
-              />
-              {formik.touched.end_time && formik.errors.end_time && (
-                <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.end_time}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label
-                htmlFor="coverImage"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Cover Image
-              </label>
+              <p className="text-sm text-gray-500">
+                Upload images that represent your event. These images will be
+                displayed on the event page.
+              </p>
               <div
                 {...getRootProps()}
                 className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md ${
@@ -258,8 +306,8 @@ export default function CreateEventComponent() {
                   <div className="flex text-sm text-gray-600">
                     <input {...getInputProps()} />
                     <p className="pl-1">
-                      {coverImage
-                        ? coverImage.name
+                      {bannerImage
+                        ? bannerImage.name
                         : "Drag and drop an image, or click to select"}
                     </p>
                   </div>
@@ -268,27 +316,201 @@ export default function CreateEventComponent() {
                   </p>
                 </div>
               </div>
-              {formik.touched.coverImage && formik.errors.coverImage && (
+              {formik.touched.bannerImage && formik.errors.bannerImage && (
                 <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.coverImage}
+                  {formik.errors.bannerImage}
                 </div>
               )}
             </div>
 
+            {/* Event Description */}
+            <div>
+              <label
+                htmlFor="description"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Please describe your event.
+              </label>
+              <p className="text-sm text-gray-500">
+                Write a few words below to describe your event and provide any
+                extra information such as schedules, itinerary or any special
+                instructions required to attend your event.
+              </p>
+              <ReactQuill
+                value={formik.values.description}
+                onChange={(content) =>
+                  formik.setFieldValue("description", content)
+                }
+                className="mt-2"
+              />
+              {formik.touched.description && formik.errors.description && (
+                <div className="text-red-500 text-sm mt-1">
+                  {formik.errors.description}
+                </div>
+              )}
+            </div>
+
+            {/* Venue Details */}
+            <div>
+              <label
+                htmlFor="venue"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Where is your event taking place?*
+              </label>
+              <p className="text-sm text-gray-500">
+                Add a venue to your event to tell your attendees where to join
+                the event.
+              </p>
+              <div className="mt-2">
+                <Map />
+              </div>
+              <Input
+                id="venue"
+                name="venue"
+                type="text"
+                onChange={formik.handleChange}
+                onBlur={formik.handleBlur}
+                value={formik.values.venue}
+                placeholder="Venue"
+                className="mt-2"
+              />
+              {formik.touched.venue && formik.errors.venue && (
+                <div className="text-red-500 text-sm mt-1">
+                  {formik.errors.venue}
+                </div>
+              )}
+            </div>
+
+            {/* Address Fields */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="address1"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Address line 1*
+                </label>
+                <Input
+                  id="address1"
+                  name="address1"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.address1}
+                />
+                {formik.touched.address1 && formik.errors.address1 && (
+                  <div className="text-red-500 text-sm mt-1">
+                    {formik.errors.address1}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="address2"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Address line 2
+                </label>
+                <Input
+                  id="address2"
+                  name="address2"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.address2}
+                />
+              </div>
+            </div>
+
+            {/* Country, State, City, Zip */}
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <label
+                  htmlFor="country"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Country*
+                </label>
+                <Input
+                  id="country"
+                  name="country"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.country}
+                />
+                {formik.touched.country && formik.errors.country && (
+                  <div className="text-red-500 text-sm mt-1">
+                    {formik.errors.country}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="state"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  State*
+                </label>
+                <Input
+                  id="state"
+                  name="state"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.state}
+                />
+                {formik.touched.state && formik.errors.state && (
+                  <div className="text-red-500 text-sm mt-1">
+                    {formik.errors.state}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="city"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  City/Suburb*
+                </label>
+                <Input
+                  id="city"
+                  name="city"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.city}
+                />
+                {formik.touched.city && formik.errors.city && (
+                  <div className="text-red-500 text-sm mt-1">
+                    {formik.errors.city}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label
+                  htmlFor="zip"
+                  className="block text-sm font-medium text-gray-700"
+                >
+                  Zip/Post Code*
+                </label>
+                <Input
+                  id="zip"
+                  name="zip"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.zip}
+                />
+                {formik.touched.zip && formik.errors.zip && (
+                  <div className="text-red-500 text-sm mt-1">
+                    {formik.errors.zip}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <Button
               type="submit"
+              className="w-full"
               disabled={isSubmitting || !formik.isValid}
-              onClick={() =>
-                console.log("Form state:", {
-                  isSubmitting,
-                  isValid: formik.isValid,
-                  errors: formik.errors,
-                  touched: formik.touched,
-                  values: formik.values,
-                })
-              }
             >
-              {isSubmitting ? "Creating..." : "Create Event"}
+              {isSubmitting ? "Creating..." : "Next"}
             </Button>
           </form>
         </CardContent>
