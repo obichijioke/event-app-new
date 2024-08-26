@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,23 +15,44 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { toast } from "sonner";
 import useErrorHandler from "@/hooks/useErrorHandler";
 import { useAuth } from "@/context/AuthContext";
 import dynamic from "next/dynamic";
 import "react-quill/dist/quill.snow.css"; // Import Quill styles
-import { MapPinIcon } from "lucide-react";
+import { MapPinIcon, X } from "lucide-react";
+import Image from "next/image";
 
 // Dynamically import ReactQuill to avoid SSR issues
 const ReactQuill = dynamic(() => import("react-quill"), { ssr: false });
 const Map = dynamic(() => import("@/components/Map"), { ssr: false });
 
 const eventTypes = ["venue", "online"];
-const eventCategories = ["Conference", "Workshop", "Webinar", "Meetup"];
+
+type FormValues = {
+  title: string;
+  category: string[];
+  event_date: string;
+  event_time: string;
+  duration: string;
+  description: string;
+  venue: string;
+  address1: string;
+  address2: string;
+  country: string;
+  state: string;
+  city: string;
+  zip: string;
+  images: File[];
+  bannerImage: File | null;
+};
 
 const EventSchema = Yup.object().shape({
   title: Yup.string().required("Title is required"),
-  category: Yup.string().required("Category is required"),
+  category: Yup.array()
+    .of(Yup.string())
+    .min(1, "At least one category is required"),
   event_date: Yup.date().required("Event date is required"),
   event_time: Yup.string().required("Event time is required"),
   duration: Yup.string().required("Duration is required"),
@@ -43,19 +64,52 @@ const EventSchema = Yup.object().shape({
   city: Yup.string().required("City is required"),
   zip: Yup.string().required("Zip code is required"),
   bannerImage: Yup.mixed().nullable(),
+  images: Yup.array().max(10, "You can upload a maximum of 10 images"),
 });
 
 export default function CreateEventComponent() {
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bannerImage, setBannerImage] = useState<File | null>(null);
+  const [images, setImages] = useState<File[]>([]);
+  const [categories, setCategories] = useState<
+    { label: string; value: string }[]
+  >([]);
   const handleError = useErrorHandler();
+
+  useEffect(() => {
+    fetchCategories().then(setCategories);
+  }, []);
+
+  async function fetchCategories() {
+    try {
+      const response = await databases.listDocuments(
+        process.env.NEXT_PUBLIC_DATABASE_ID!,
+        process.env.NEXT_PUBLIC_EVENT_CATEGORY_COLLECTION_ID!
+      );
+      return response.documents.map((doc) => ({
+        label: doc.name,
+        value: doc.$id,
+      }));
+    } catch (error) {
+      handleError(error);
+      return [];
+    }
+  }
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       setBannerImage(acceptedFiles[0]);
       formik.setFieldValue("bannerImage", acceptedFiles[0]);
     }
+  }, []);
+
+  const onImagesDrop = useCallback((acceptedFiles: File[]) => {
+    setImages((prevImages) => {
+      const newImages = [...prevImages, ...acceptedFiles].slice(0, 10);
+      formik.setFieldValue("images", newImages);
+      return newImages;
+    });
   }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -65,10 +119,30 @@ export default function CreateEventComponent() {
     },
     maxFiles: 1,
   });
-  const formik = useFormik({
+
+  const {
+    getRootProps: getImagesRootProps,
+    getInputProps: getImagesInputProps,
+  } = useDropzone({
+    onDrop: onImagesDrop,
+    accept: {
+      "image/*": [".jpeg", ".png", ".jpg", ".gif"],
+    },
+    maxFiles: 10,
+  });
+
+  const removeImage = (index: number) => {
+    setImages((prevImages) => {
+      const newImages = prevImages.filter((_, i) => i !== index);
+      formik.setFieldValue("images", newImages);
+      return newImages;
+    });
+  };
+
+  const formik = useFormik<FormValues>({
     initialValues: {
       title: "",
-      category: "",
+      category: [],
       event_date: "",
       event_time: "",
       duration: "",
@@ -80,6 +154,7 @@ export default function CreateEventComponent() {
       state: "",
       city: "",
       zip: "",
+      images: [],
       bannerImage: null,
     },
     validationSchema: EventSchema,
@@ -87,7 +162,24 @@ export default function CreateEventComponent() {
       console.log("Form submitted", values);
       setIsSubmitting(true);
       try {
-        let bannerImageId = null;
+        // Create location document
+        const locationData = {
+          name: values.venue,
+          address: values.address1 + " " + values.address2,
+          country: values.country,
+          state: values.state,
+          city: values.city,
+          postal_code: values.zip,
+        };
+
+        const location = await databases.createDocument(
+          process.env.NEXT_PUBLIC_DATABASE_ID!,
+          process.env.NEXT_PUBLIC_LOCATION_COLLECTION_ID!,
+          "unique()",
+          locationData
+        );
+
+        let bannerImageId: string | null | undefined = null;
         if (values.bannerImage) {
           const file = await storage.createFile(
             process.env.NEXT_PUBLIC_STORAGE_ID!,
@@ -97,17 +189,38 @@ export default function CreateEventComponent() {
           bannerImageId = file.$id;
         }
 
+        // Upload images only if present
+        let imageIds = null;
+        if (values.images && values.images.length > 0) {
+          imageIds = await Promise.all(
+            values.images.map((image) =>
+              storage.createFile(
+                process.env.NEXT_PUBLIC_STORAGE_ID!,
+                "unique()",
+                image
+              )
+            )
+          );
+          imageIds = imageIds.map((file) => file.$id);
+        }
+
         const eventData = {
-          ...values,
-          bannerImage: bannerImageId,
-          event_date: new Date(values.event_date).toISOString(),
-          event_time: values.event_time,
+          location: location.$id,
+          coverImage: bannerImageId,
+          start_time: new Date(
+            values.event_date + "T" + values.event_time
+          ).toISOString(),
           user: user.$id,
+          images: imageIds,
+          description: values.description,
+          title: values.title,
+          category: values.category,
+          duration: values.duration,
         };
 
         const response = await databases.createDocument(
           process.env.NEXT_PUBLIC_DATABASE_ID!,
-          process.env.NEXT_PUBLIC_API_EVENT_COLLECTION_ID!,
+          process.env.NEXT_PUBLIC_EVENT_COLLECTION_ID!,
           "unique()",
           eventData
         );
@@ -179,29 +292,23 @@ export default function CreateEventComponent() {
                 htmlFor="category"
                 className="block text-sm font-medium text-gray-700"
               >
-                Choose a category for your event.*
+                Choose categories for your event.*
               </label>
               <p className="text-sm text-gray-500">
-                Select a category that best describes your event. This will help
-                attendees find your event more easily.
+                Select one or more categories that best describe your event.
               </p>
-              <Select
-                name="category"
+              <MultiSelect
+                options={categories}
                 onValueChange={(value) =>
                   formik.setFieldValue("category", value)
                 }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {eventCategories.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {category}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                defaultValue={formik.values.category}
+                placeholder="Select categories"
+                variant="inverted"
+                animation={2}
+                maxCount={3}
+              />
+
               {formik.touched.category && formik.errors.category && (
                 <div className="text-red-500 text-sm mt-1">
                   {formik.errors.category}
@@ -219,42 +326,67 @@ export default function CreateEventComponent() {
                 to attend.
               </p>
               <div className="flex gap-4 mt-2">
-                <Input
-                  id="event_date"
-                  name="event_date"
-                  type="date"
-                  placeholder="MM/DD/YYYY"
-                  onChange={formik.handleChange}
-                  onBlur={formik.handleBlur}
-                  value={formik.values.event_date}
-                />
-                <Input
-                  id="event_time"
-                  name="event_time"
-                  type="time"
-                  onChange={formik.handleChange}
-                  onBlur={formik.handleBlur}
-                  value={formik.values.event_time}
-                />
-                <Select
-                  name="duration"
-                  onValueChange={(value) =>
-                    formik.setFieldValue("duration", value)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Duration" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["30m", "1h", "1h 30m", "2h", "2h 30m", "3h"].map(
-                      (duration) => (
-                        <SelectItem key={duration} value={duration}>
-                          {duration}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
+                <div>
+                  <label
+                    htmlFor="event_date"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    Date
+                  </label>
+                  <Input
+                    id="event_date"
+                    name="event_date"
+                    type="date"
+                    placeholder="MM/DD/YYYY"
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    value={formik.values.event_date}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="event_time"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    Time
+                  </label>
+                  <Input
+                    className="w-full"
+                    id="event_time"
+                    name="event_time"
+                    type="time"
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    value={formik.values.event_time}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="duration"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    Duration
+                  </label>
+                  <Select
+                    name="duration"
+                    onValueChange={(value) =>
+                      formik.setFieldValue("duration", value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Duration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["30m", "1h", "1h 30m", "2h", "2h 30m", "3h"].map(
+                        (duration) => (
+                          <SelectItem key={duration} value={duration}>
+                            {duration}
+                          </SelectItem>
+                        )
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               {formik.touched.event_date && formik.errors.event_date && (
                 <div className="text-red-500 text-sm mt-1">
@@ -282,40 +414,62 @@ export default function CreateEventComponent() {
                 Upload images that represent your event. These images will be
                 displayed on the event page.
               </p>
-              <div
-                {...getRootProps()}
-                className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md ${
-                  isDragActive ? "bg-gray-100" : ""
-                }`}
-              >
-                <div className="space-y-1 text-center">
-                  <svg
-                    className="mx-auto h-12 w-12 text-gray-400"
-                    stroke="currentColor"
-                    fill="none"
-                    viewBox="0 0 48 48"
-                    aria-hidden="true"
+              {bannerImage ? (
+                <div className="mt-2 relative">
+                  <Image
+                    src={URL.createObjectURL(bannerImage)}
+                    alt="Banner preview"
+                    width={300}
+                    height={200}
+                    className="rounded-md w-full object-cover h-[200px]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBannerImage(null);
+                      formik.setFieldValue("bannerImage", null);
+                    }}
+                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1"
                   >
-                    <path
-                      d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
-                      strokeWidth={2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <div className="flex text-sm text-gray-600">
-                    <input {...getInputProps()} />
-                    <p className="pl-1">
-                      {bannerImage
-                        ? bannerImage.name
-                        : "Drag and drop an image, or click to select"}
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  {...getRootProps()}
+                  className={`mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md ${
+                    isDragActive ? "bg-gray-100" : ""
+                  }`}
+                >
+                  <div className="space-y-1 text-center">
+                    <svg
+                      className="mx-auto h-12 w-12 text-gray-400"
+                      stroke="currentColor"
+                      fill="none"
+                      viewBox="0 0 48 48"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    <div className="flex text-sm text-gray-600">
+                      <input {...getInputProps()} />
+                      <p className="pl-1">
+                        {bannerImage
+                          ? (bannerImage as File).name
+                          : "Drag and drop an image, or click to select"}
+                      </p>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      PNG, JPG, GIF up to 10MB
                     </p>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    PNG, JPG, GIF up to 10MB
-                  </p>
                 </div>
-              </div>
+              )}
               {formik.touched.bannerImage && formik.errors.bannerImage && (
                 <div className="text-red-500 text-sm mt-1">
                   {formik.errors.bannerImage}
@@ -503,6 +657,66 @@ export default function CreateEventComponent() {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Images Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Add up to 10 images for your event
+              </label>
+              <div
+                {...getImagesRootProps()}
+                className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md"
+              >
+                <div className="space-y-1 text-center">
+                  <svg
+                    className="mx-auto h-12 w-12 text-gray-400"
+                    stroke="currentColor"
+                    fill="none"
+                    viewBox="0 0 48 48"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <div className="flex text-sm text-gray-600">
+                    <input {...getImagesInputProps()} />
+                    <p className="pl-1">
+                      Drag and drop images, or click to select
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    PNG, JPG, GIF up to 10MB each
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-5 gap-4">
+                {images.map((file, index) => (
+                  <div key={index} className="relative">
+                    <img
+                      src={URL.createObjectURL(file)}
+                      alt={`Uploaded ${index + 1}`}
+                      className="h-[120px] w-full object-cover rounded-md"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(index)}
+                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full p-1"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {formik.touched.images && formik.errors.images && (
+                <div className="text-red-500 text-sm mt-1">
+                  {formik.errors.images}
+                </div>
+              )}
             </div>
 
             <Button
