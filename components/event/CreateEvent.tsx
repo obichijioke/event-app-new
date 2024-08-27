@@ -714,7 +714,9 @@ export default function CreateEventComponent() {
               </div>
               {formik.touched.images && formik.errors.images && (
                 <div className="text-red-500 text-sm mt-1">
-                  {formik.errors.images}
+                  {typeof formik.errors.images === "string"
+                    ? formik.errors.images
+                    : "Invalid images"}
                 </div>
               )}
             </div>
